@@ -44,6 +44,8 @@ void print_txtFile(const char* txtPath)
 
 #define C_stereo_available(c) ((c)->gmInfo->gmHasMultiChannel)
 
+const char* errMessage = NULL;
+
 void C_init(C* restrict c, const PList_Node* item, const Args* restrict args)
 {
 	c->item = item;
@@ -58,11 +60,22 @@ void C_init(C* restrict c, const PList_Node* item, const Args* restrict args)
 	c->emu = gme_new_emu_multi_channel(c->gmType, c->args->sampleRate);
 	gme_enable_accuracy(c->emu, true);
 
+	errMessage = gme_load_file(c->emu, filePath);
+	if (errMessage) {
+		error(EPERM, EPERM, "%s: %s", __func__, errMessage);
+	}
+	// 先载入文件，再读取信息
+
 	c->gmInfo = (GmInfo*)malloc(sizeof(GmInfo));
 	if (not c->gmInfo) {
 		error(ENOMEM, ENOMEM, "%s：在c->gmInfo(%p)上malloc失败。", __func__, c->gmInfo);
 	}
 	C_set_current_track(c, 0);
+
+	c->gmInfo->gmInfoSet = (gme_info_t*)malloc(sizeof(gme_info_t));
+	if (not c->gmInfo->gmInfoSet) {
+		error(ENOMEM, ENOMEM, "%s：在c->gmInfo->gmInfoSet(%p)上malloc失败。", __func__, c->gmInfo->gmInfoSet);
+	}
 
 	c->wavInfo = (SF_INFO*)malloc(sizeof(SF_INFO));
 	if (not c->wavInfo) {
@@ -107,7 +120,7 @@ void C_new_wavFile(C* restrict c)
 		error(ENOENT, ENOENT, "%s：无法创建新文件%s之指针。", __func__, c->currentOutFilePath);
 	} else {
 		if (c->args->verbose) {
-			printf("%s：新文件%s之指针已获得(%p)。", __func__, c->currentOutFilePath, c->wavFile);
+			printf("%s：新文件%s之指针已获得(%p)。\n", __func__, c->currentOutFilePath, c->wavFile);
 		}
 	}
 }
@@ -116,7 +129,7 @@ void C_close_wavFile(C* restrict c)
 {
 	sf_close(c->wavFile);
 	if (c->args->verbose) {
-		printf("%s：%s(%p)文件指针已关闭。", __func__, c->currentOutFilePath, c->wavFile);
+		printf("%s：%s(%p)文件指针已关闭。\n", __func__, c->currentOutFilePath, c->wavFile);
 	}
 	c->wavFile = NULL;
 }
@@ -214,7 +227,7 @@ void C_play_control(C* restrict c) // Track载入后才能使用
 		gme_set_fade(c->emu, -1);
 
 		if (c->args->loopTime) {
-			printf("%s：由于曲目[%s/%s : %03d]并无循环节，故对循环次数(--loop_time=%u)与淡出时长(--fade_out_ms=%d)的设定将失效。",
+			printf("%s：由于曲目[%s/%s : %03d]并无循环节，故对循环次数(--loop_time=%u)与淡出时长(--fade_out_ms=%d)的设定将失效。\n",
 			    __func__,
 			    c->item->fileDir,
 			    c->item->fileName,
@@ -225,14 +238,13 @@ void C_play_control(C* restrict c) // Track载入后才能使用
 	}
 }
 
-const char* errMessage = NULL;
-
 void C_play_stereo(C* restrict c)
 {
 	const int channels = 2; // gme.h中载：程序输出的音频为stereo的。stereo必为2 channels，故写死。
 
-	gme_set_stereo_depth(c->emu, 1.0);
+	// gme_set_stereo_depth(c->emu, 1.0);
 
+	/*
 	char inFilePath[FILENAME_LEN_MAX];
 	memset(inFilePath, '\0', FILENAME_LEN_MAX * sizeof(char));
 	sprintf(inFilePath, "%s/%s", c->item->fileDir, c->item->fileName);
@@ -242,6 +254,7 @@ void C_play_stereo(C* restrict c)
 		error(EPERM, EPERM, "%s: %s", __func__, errMessage);
 	}
 	// printf("voice: %u\nmulti channel: %u\n", gme_voice_count(emu), gme_multi_channel(emu));
+	*/
 
 	errMessage = gme_start_track(c->emu, c->currentTrack);
 	if (errMessage) {
@@ -259,13 +272,13 @@ void C_play_stereo(C* restrict c)
 		error(ENOMEM, ENOMEM, "%s：malloc失败。", __func__);
 	}
 
-	int sumChannels[channels];
+	// int sumChannels[channels];
 	// uint32_t sumChannelsCount[channels];
 
 	while ((not gme_track_ended(c->emu)) /* and gme_tell(emu) < 30 * 1000*/) {
 		memset(outBuffer, 0, outBufferSize);
 		memset(inBuffer, 0, inBufferSize);
-		memset(sumChannels, 0, channels * sizeof(int));
+		// memset(sumChannels, 0, channels * sizeof(int));
 		// memset(sumChannelsCount, 0, channels * sizeof(int));
 
 		/* 在stereo模式下：
@@ -295,17 +308,19 @@ void C_play_stereo(C* restrict c)
 		int channelToWrite = 0, v = 0;
 
 		while (v < voices * channels) {
-			for (int c = 0; c < channels; c += 1) {
-				sumChannels[channelToWrite] += inBuffer[v];
+			for (int ch = 0; ch < channels; ch += 1) {
+				// sumChannels[channelToWrite] += inBuffer[v];
+				outBuffer[channelToWrite] += inBuffer[v] * c->args->volumeB / c->args->volumeA;
 				v += 1;
 			}
 
+			/*
 			for (int c = 0; c < channels; c += 1) {
 
 				// outBuffer[c] += sumChannels[c] / channels;
 				outBuffer[c] += sumChannels[c];
 				sumChannels[c] = 0; // 此小数组用于存储每个voice的数据，每处理1个voice(2个channel)就要清零一次
-			}
+			}*/
 
 			interger_roll(&channelToWrite, 0, channels);
 		}
@@ -329,6 +344,7 @@ void C_play_stereo(C* restrict c)
 
 void C_play_normal(C* restrict c)
 {
+	/*
 	char inFilePath[FILENAME_LEN_MAX];
 	memset(inFilePath, '\0', FILENAME_LEN_MAX * sizeof(char));
 	sprintf("%s/%s", c->item->fileDir, c->item->fileName);
@@ -337,6 +353,7 @@ void C_play_normal(C* restrict c)
 	if (errMessage) {
 		error(EPERM, EPERM, "%s: %s", __func__, errMessage);
 	}
+	*/
 
 	errMessage = gme_start_track(c->emu, c->currentTrack);
 	if (errMessage) {
@@ -367,7 +384,7 @@ void C_play_normal(C* restrict c)
 		uint32_t v = 0;
 		int channelToWrite = 0;
 		while (v < voices * gmeChannelsPerVoice) {
-			outBuffer[channelToWrite] += inBuffer[v];
+			outBuffer[channelToWrite] += inBuffer[v] * c->args->volumeB / c->args->volumeA;
 
 			v += 1;
 			interger_roll(&channelToWrite, 0, c->args->channels);
@@ -429,7 +446,7 @@ void convert(const PList_Node* item, const Args* args)
 	}
 	}
 
-	printf("m = %hhu\n",c.args->mode);
+	printf("m = %hhu\n", c.args->mode);
 	printf("[%d, %d)\n", start, end);
 	for (int i = start; i < end; i += 1) {
 		C_set_current_track(&c, i);
@@ -444,7 +461,7 @@ void convert(const PList_Node* item, const Args* args)
 			C_play_stereo(&c);
 		} else {
 			if (c.args->stereo and (not C_stereo_available(&c))) {
-				printf("%s：由于曲目[%s/%s : %03d]本身不支持stereo模式，故“--stereo”选项失效。", __func__, c.item->fileDir, c.item->fileName, c.currentTrack);
+				printf("%s：由于曲目[%s/%s : %03d]本身不支持stereo模式，故“--stereo”选项失效。\n", __func__, c.item->fileDir, c.item->fileName, c.currentTrack);
 			}
 			C_play_normal(&c);
 		}

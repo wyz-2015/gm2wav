@@ -14,6 +14,8 @@ typedef struct Args {
 	uint8_t channels;  // channel数高起来都不太合理，限[0, 256]好了
 	int fadeOut_ms;	   // 若曲目本身不循环，则失效
 	bool stereo;	   // stereo模式，此选项会使channels选项失效(强制为2)
+	uint16_t volumeA;	   // 此数的倒数作为输出音频的响度的系数，默认2，即1/2
+	uint16_t volumeB;	   // 此数作为输出音频的响度的系数，默认1
 
 	// const char* baseName; // 输出文件时的base name
 	uint8_t mode; // 模式：n 转 n (默认)、

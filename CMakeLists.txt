@@ -1,6 +1,6 @@
 project(gm2wav)
 
-option(USE_SYSTEM_SNDFILE "使用通过系统源安装的libgme" ON)
+option(USE_SYSTEM_SNDFILE "使用通过系统源安装的libsndfile" ON)
 
 if(USE_SYSTEM_SNDFILE)
 	find_library(LIBSNDFILE_DIR NAMES sndfile)
@@ -13,6 +13,7 @@ if(NOT USE_SYSTEM_SNDFILE)
 	message(FATAL_ERROR "\n${HAQI_IMAGE}\n您选择了不使用系统源内的libsndfile。请自行修改本CMakeLists.txt文件以自行支持，sry~")
 endif()
 
+# ===========================================
 
 option(USE_SYSTEM_LIBGME "使用通过系统源安装的libgme" OFF)
 
@@ -45,3 +46,9 @@ set(SOURCES
 
 add_executable(gm2wav ${SOURCES})
 target_link_libraries(gm2wav ${LIBGME_DIR} ${LIBSNDFILE_DIR})
+
+set(CMAKE_BUILD_TYPE Release)
+if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
+	# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+endif()
