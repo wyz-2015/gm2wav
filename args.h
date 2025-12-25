@@ -1,6 +1,10 @@
 #ifndef _ARGS_H
 #define _ARGS_H
 
+/* args.h
+ * 存储命令行传参数据的结构体
+ */
+
 #include "common.h"
 
 typedef struct Args {

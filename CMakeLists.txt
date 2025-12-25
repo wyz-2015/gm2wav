@@ -1,5 +1,13 @@
 project(gm2wav)
 
+set(CMAKE_BUILD_TYPE Release)
+if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
+	# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
+endif()
+
+# ===========================================
+
 option(USE_SYSTEM_SNDFILE "使用通过系统源安装的libsndfile" ON)
 
 if(USE_SYSTEM_SNDFILE)
@@ -38,6 +46,8 @@ if(NOT USE_SYSTEM_LIBGME)
 	message("${GME}\t${LIBGME_DIR}")
 endif()
 
+# ===========================================
+
 set(SOURCES
 	main.c
 	converter.c
@@ -46,9 +56,3 @@ set(SOURCES
 
 add_executable(gm2wav ${SOURCES})
 target_link_libraries(gm2wav ${LIBGME_DIR} ${LIBSNDFILE_DIR})
-
-set(CMAKE_BUILD_TYPE Release)
-if(${CMAKE_BUILD_TYPE} STREQUAL "Debug")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
-	# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -O0")
-endif()
