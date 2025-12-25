@@ -28,7 +28,6 @@ typedef struct C {
 	gme_type_t gmType;
 	GmInfo* gmInfo;
 	int currentTrack;
-	uint8_t gmeChannels;
 
 	// wav文件相关指针
 	SF_INFO* wavInfo;

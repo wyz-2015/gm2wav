@@ -166,6 +166,8 @@ void C_showinfo(const C* restrict c)
 #ifdef LIBGME064
 	printf("渐出时长：\t%d ms (libgme >= 0.6.4)\n", c->gmInfo->gmInfoSet->fade_length); // Ubuntu 24.04只提供到0.6.3版，其时gme_info_t结构内尚未添加此项。
 #endif
+	printf("限定最长时长：\t%d ms\n", c->args->lenMax_ms);
+
 	putchar('\n');
 	printf("系统：\t%s\n", c->gmInfo->gmInfoSet->system);
 	printf("游戏名：\t%s\n", c->gmInfo->gmInfoSet->game);
@@ -213,6 +215,8 @@ void C_clear(C* restrict c)
 	}
 }
 
+/* ***************** 核心部分，与播放相关的函数 ****************** */
+
 void C_play_control(C* restrict c) // Track载入后才能使用
 {
 	if (c->gmInfo->gmInfoSet->loop_length > 0) { // 含有循环节，则 播放时长 = 前导 + 循环节长 * 循环次数
@@ -227,7 +231,7 @@ void C_play_control(C* restrict c) // Track载入后才能使用
 		gme_set_fade(c->emu, -1);
 
 		if (c->args->loopTime) {
-			printf("%s：由于曲目[%s/%s : %03d]并无循环节，故对循环次数(--loop_time=%u)与淡出时长(--fade_out_ms=%d)的设定将失效。\n",
+			printf("%s：由于曲目[%s/%s : %03d]并无循环节，故对循环次数(--loop_time=%u)与淡出时长(--fadeout_ms=%d)的设定将失效。\n",
 			    __func__,
 			    c->item->fileDir,
 			    c->item->fileName,
@@ -238,11 +242,11 @@ void C_play_control(C* restrict c) // Track载入后才能使用
 	}
 }
 
-void C_play_stereo(C* restrict c)
+void C_play_nsf_stereo(C* restrict c)
 {
 	const int channels = 2; // gme.h中载：程序输出的音频为stereo的。stereo必为2 channels，故写死。
 
-	// gme_set_stereo_depth(c->emu, 1.0);
+	gme_set_stereo_depth(c->emu, 1.0);
 
 	/*
 	char inFilePath[FILENAME_LEN_MAX];
@@ -275,7 +279,7 @@ void C_play_stereo(C* restrict c)
 	// int sumChannels[channels];
 	// uint32_t sumChannelsCount[channels];
 
-	while ((not gme_track_ended(c->emu)) /* and gme_tell(emu) < 30 * 1000*/) {
+	while ((not gme_track_ended(c->emu)) and gme_tell(c->emu) < c->args->lenMax_ms) {
 		memset(outBuffer, 0, outBufferSize);
 		memset(inBuffer, 0, inBufferSize);
 		// memset(sumChannels, 0, channels * sizeof(int));
@@ -342,7 +346,7 @@ void C_play_stereo(C* restrict c)
 	}
 }
 
-void C_play_normal(C* restrict c)
+void C_play_nsf_normal(C* restrict c)
 {
 	/*
 	char inFilePath[FILENAME_LEN_MAX];
@@ -372,7 +376,7 @@ void C_play_normal(C* restrict c)
 		error(ENOMEM, ENOMEM, "%s：为inBuffer(%p)或outBuffer(%p)malloc失败。", __func__, inBuffer, outBuffer);
 	}
 
-	while (not gme_track_ended(c->emu)) {
+	while ((not gme_track_ended(c->emu)) and gme_tell(c->emu) < c->args->lenMax_ms) {
 		memset(inBuffer, 0, inBufferSize);
 		memset(outBuffer, 0, outBufferSize);
 
@@ -400,6 +404,44 @@ void C_play_normal(C* restrict c)
 		free(outBuffer);
 	}
 }
+
+void C_play_normal(C* restrict c)
+{
+	errMessage = gme_start_track(c->emu, c->currentTrack);
+	if (errMessage) {
+		error(EPERM, EPERM, "%s: %s", __func__, errMessage);
+	}
+
+	C_play_control(c);
+
+	const uint32_t gmeChannelsPerVoice = 1,
+		       voices = 2,
+		       inBufferSize = gmeChannelsPerVoice * voices,
+		       outBufferSize = c->args->channels;
+	short inBuffer[inBufferSize], outBuffer[outBufferSize];
+
+	while ((not gme_track_ended(c->emu)) and gme_tell(c->emu) < c->args->lenMax_ms) {
+		memset(inBuffer, 0, inBufferSize * sizeof(short));
+		memset(outBuffer, 0, outBufferSize * sizeof(short));
+
+		errMessage = gme_play(c->emu, inBufferSize, inBuffer);
+		if (errMessage) {
+			error(EPERM, EPERM, "%s: %s", __func__, errMessage);
+		}
+
+		int v = 0, channelToWrite = 0;
+		while (v < gmeChannelsPerVoice * voices) {
+			outBuffer[channelToWrite] += inBuffer[v] * c->args->volumeB / c->args->volumeA;
+
+			v += 1;
+			interger_roll(&channelToWrite, 0, c->args->channels);
+		}
+
+		sf_writef_short(c->wavFile, outBuffer, 1);
+	}
+}
+
+/* ************************************ */
 
 typedef struct LoopInfo {
 	sf_count_t startFrame; // 指采样帧
@@ -446,8 +488,8 @@ void convert(const PList_Node* item, const Args* args)
 	}
 	}
 
-	printf("m = %hhu\n", c.args->mode);
-	printf("[%d, %d)\n", start, end);
+	// printf("m = %hhu\n", c.args->mode);
+	// printf("[%d, %d)\n", start, end);
 	for (int i = start; i < end; i += 1) {
 		C_set_current_track(&c, i);
 		C_getinfo(&c);
@@ -457,14 +499,29 @@ void convert(const PList_Node* item, const Args* args)
 
 		C_new_wavFile(&c);
 
+		if (C_stereo_available(&c)) {
+			if (c.args->stereo) {
+				C_play_nsf_stereo(&c);
+			} else {
+				C_play_nsf_normal(&c);
+			}
+		} else {
+			if (c.args->stereo) {
+				printf("%s：由于曲目[%s/%s : %03d]本身不支持多通道模式，故“--stereo”选项失效。\n", __func__, c.item->fileDir, c.item->fileName, c.currentTrack);
+			}
+			C_play_normal(&c);
+		}
+
+		/*
 		if (c.args->stereo and C_stereo_available(&c)) {
-			C_play_stereo(&c);
+			C_play_nsf_stereo(&c);
 		} else {
 			if (c.args->stereo and (not C_stereo_available(&c))) {
 				printf("%s：由于曲目[%s/%s : %03d]本身不支持stereo模式，故“--stereo”选项失效。\n", __func__, c.item->fileDir, c.item->fileName, c.currentTrack);
 			}
-			C_play_normal(&c);
+			C_play_nsf_normal(&c);
 		}
+		*/
 
 		// TODO: 循环节信息写入wav
 		if (c.args->loopWav) {

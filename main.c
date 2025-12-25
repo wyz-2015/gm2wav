@@ -12,8 +12,9 @@ static const struct argp_option options[] = {
 	{ "loop_message", 'i', 0, OPTION_ARG_OPTIONAL, "是否为wav文件写入循环信息(目前尚不支持，默认不启用)" },
 	{ "channels", 'c', "uint8_t", OPTION_ARG_OPTIONAL, "通道数(默认2)" },
 	{ "fadeout_ms", 'f', "int", OPTION_ARG_OPTIONAL, "若曲目本身不循环，则失效(单位ms，默认1000)" },
-	{ "volumeA", 'A', "uint32_t", OPTION_ARG_OPTIONAL, "此数的倒数为输出音频的响度的系数，默认2，即1/2" },
-	{ "volumeB", 'B', "uint32_t", OPTION_ARG_OPTIONAL, "此数为输出音频的响度的系数，默认1。A、B参数同时生效，即输出音频时响度*(B/A)." },
+	{ "len_max_ms", 'L', "int", OPTION_ARG_OPTIONAL, "若libgme无法正确处理会循环的gm(情况还不少)，程序则会陷入无限生成的死路。故限定一个最大播放时长。(单位ms，默认7 * 60 * 1000)" },
+	{ "volumeA", 'A', "uint16_t", OPTION_ARG_OPTIONAL, "此数的倒数为输出音频的响度的系数，默认2，即1/2" },
+	{ "volumeB", 'B', "uint16_t", OPTION_ARG_OPTIONAL, "此数为输出音频的响度的系数，默认1。A、B参数同时生效，即输出音频时响度*(B/A)." },
 	{ "stereo", 'd', 0, OPTION_ARG_OPTIONAL, "stereo模式，此选项会使channels选项失效(强制改为2)(默认不启用)" },
 	{ "mode", 'm', "uint8_t", OPTION_ARG_OPTIONAL, "对包含多曲目的单文件的转换模式。0为全部切出(默认，此模式下-t / --track选项失效)，1为选取其中之一" },
 	{ "track", 't', "int", OPTION_ARG_OPTIONAL, "如果指定了n取1模式，则取第几Track(0数起，默认0)" },
@@ -59,6 +60,12 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state)
 		}
 		break;
 	}
+	case 'L': {
+		if (arg == NULL or sscanf(arg, "%d", &(args->lenMax_ms)) != 1) {
+			error(EINVAL, EINVAL, "读取-L / --len_max_ms的参数“%s”失败", arg);
+		}
+		break;
+	}
 	case 'd': {
 		args->stereo = true;
 		break;
@@ -83,7 +90,7 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state)
 		break;
 	}
 	case 'A': {
-		if (arg == NULL and sscanf(arg, "%hu", &(args->volumeA)) != 1) {
+		if (arg == NULL or sscanf(arg, "%hu", &(args->volumeA)) != 1) {
 			error(EINVAL, EINVAL, "读取-A / --volumeA的参数“%s”失败", arg);
 		}
 		if (args->volumeA == 0) {
@@ -92,7 +99,7 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state)
 		break;
 	}
 	case 'B': {
-		if (arg == NULL and sscanf(arg, "%hu", &(args->volumeB)) != 1) {
+		if (arg == NULL or sscanf(arg, "%hu", &(args->volumeB)) != 1) {
 			error(EINVAL, EINVAL, "读取-B / --volumeB的参数“%s”失败", arg);
 		}
 		break;
@@ -123,6 +130,7 @@ int main(int argc, char** argv)
 		.loopWav = false,
 		.channels = 2,
 		.fadeOut_ms = 10000,
+		.lenMax_ms = 7 * 60 * 1000,
 		.stereo = false,
 		.volumeA = 2,
 		.volumeB = 1,
@@ -130,6 +138,12 @@ int main(int argc, char** argv)
 		.trackNum = 0,
 		.verbose = false
 	};
+
+	if (argc == 1) {
+		argp_help(&argp, stdout, ARGP_HELP_USAGE | ARGP_HELP_LONG, NULL);
+		error(EINVAL, EINVAL, "程序未接收到任何参数……");
+	}
+
 	argp_parse(&argp, argc, argv, 0, 0, &args);
 	if (args.stereo) {
 		args.channels = 2;

@@ -101,7 +101,7 @@ void PList_clear(PList* restrict pl)
 
 void PList_print(const PList* restrict pl)
 {
-	putchar('[');
+	puts("[");
 	PList_Node* currentNode = pl->head;
 	while (currentNode) {
 		printf("Path(\"%s/%s\"),\n", currentNode->fileDir, currentNode->fileName);
